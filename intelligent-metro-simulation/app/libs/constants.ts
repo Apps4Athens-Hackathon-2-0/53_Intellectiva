@@ -1,0 +1,1 @@
+export const SIM_DATE = "2025-11-09"
