@@ -11,7 +11,7 @@ This project demonstrates an end-to-end intelligent transportation system that:
 
 The project is split into two main components:
 
-## 📁 Project Structure
+## Project Structure
 
 ### 1. **regression_model/** - Machine Learning Pipeline
 
@@ -97,7 +97,7 @@ A Next.js-based real-time metro simulation and visualization dashboard with sche
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - **Node.js 18+** (for web platform)
@@ -164,7 +164,7 @@ python predict.py
 
 ---
 
-## 📊 Data Pipeline
+## Data Pipeline
 
 The project uses real OASA (Athens Metro) ridership data enriched with weather information:
 
@@ -178,7 +178,7 @@ The project uses real OASA (Athens Metro) ridership data enriched with weather i
 
 ---
 
-## 🎯 Use Cases
+## Use Cases
 
 - **Transport Planners** - Analyze and optimize metro scheduling
 - **Capacity Planning** - Forecast demand to plan train deployments
@@ -187,7 +187,7 @@ The project uses real OASA (Athens Metro) ridership data enriched with weather i
 
 ---
 
-## 📝 Notes
+## Notes
 
 - The project focuses on **Athens Metro Line C** for demonstration
 - Simulation date: Configurable (default: 2025-11-09)
@@ -196,6 +196,6 @@ The project uses real OASA (Athens Metro) ridership data enriched with weather i
 
 ---
 
-## 📄 License
+## License
 
 Part of the Apps4Athens Hackathon 2.0 submission.
