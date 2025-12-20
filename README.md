@@ -139,7 +139,7 @@ python predict.py
 
 ---
 
-## 🛠 Technology Stack
+## Technology Stack
 
 ### Backend / Data Layer
 - **Python 3.x** - Core data processing language
