@@ -1,22 +1,11 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+import pandas as pd
 
-# Initialize Spark session
-spark = SparkSession.builder \
-    .appName("Subway Data Filter") \
-    .getOrCreate()
-
-# Read the CSV file
-# Replace 'input_file.csv' with your actual file path
 input_path = "oasa_weather_enriched.csv"
-df = spark.read.csv(input_path, header=True, inferSchema=True)
+print(f"Loading {input_path}...")
+df = pd.read_csv(input_path, low_memory=False)
 
-# Display schema and initial count
-print("Original Schema:")
-df.printSchema()
-print(f"\nTotal records: {df.count()}")
+print(f"Total records: {len(df)}")
 
-# Define the list of subway stations to keep
 subway_stations = [
     "ΔΗΜΟΤΙΚΟ ΘΕΑΤΡΟ", "ΠΕΙΡΑΙΑΣ", "ΜΑΝΙΑΤΙΚΑ", "ΝΙΚΑΙΑ", "ΚΟΡΥΔΑΛΛΟΣ",
     "ΑΓΙΑ ΒΑΡΒΑΡΑ", "ΑΓΙΑ ΜΑΡΙΝΑ", "ΑΙΓΑΛΕΩ", "ΕΛΑΙΩΝΑΣ", "ΚΕΡΑΜΕΙΚΟΣ",
@@ -26,25 +15,12 @@ subway_stations = [
     "ΠΑΙΑΝΙΑ - KΑΝTΖΑ", "ΚΟΡΩΠΙ", "ΑΕΡΟΔΡΟΜΙΟ"
 ]
 
-# Filter for subway data (dv_agency = 2) AND specific stations
-subway_df = df.filter(
-    (col("dv_agency") == 2) & 
-    (col("dv_platenum_station").isin(subway_stations))
-)
+print("Filtering for Line C Subway stations...")
+subway_df = df[(df["dv_agency"] == 2) & (df["dv_platenum_station"].isin(subway_stations))]
 
-# Display filtered data statistics
-print(f"\nSubway records: {subway_df.count()}")
-print("\nSample of filtered data:")
-subway_df.show(5, truncate=False)
+print(f"Subway records kept: {len(subway_df)}")
 
-# Export to new CSV
-# Replace 'output_subway_data.csv' with your desired output path
-output_path = "output_subway_c.csv"
-
-# Write as single CSV file (coalesce to 1 partition)
-subway_df.coalesce(1).write.mode("overwrite") \
-    .option("header", "true") \
-    .csv(output_path)
-
-# Stop Spark session
-spark.stop()
+output_path = "subway_c.csv"
+print(f"Saving to {output_path}...")
+subway_df.to_csv(output_path, index=False)
+print("Done.")

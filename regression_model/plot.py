@@ -22,32 +22,20 @@ with open(INFO_FILE) as f:
 FEATURES = meta["features"]
 CATEGORICAL = meta["categorical"]
 NUMERIC = meta["numeric"]
-LOG_TARGET = meta["train_on_log_scale"]
+PRIORS = meta.get("priors", {})
+GLOBAL_PRIOR = meta.get("global_prior", {})
+MEDIANS = meta.get("medians", {})
 
 print("Model loaded")
 
-
-# LOAD DATA & BUILD PRIORS
-print("\nLoading dataset & Building Priors...")
+# LOAD DATA
+print("\nLoading dataset to run predictions across full timeline...")
 full_df = pd.read_csv(DATA_FILE)
 full_df["date_hour"] = pd.to_datetime(full_df["date_hour"], errors="coerce", utc=True)
 
-# Build Priors from the FULL dataset before filtering
-station_stats = full_df.groupby("dv_platenum_station")["dv_validations"].agg(
-    station_mean="mean",
-    station_max="max",
-    station_total="sum"
-).reset_index()
-
-station_stats["station_peak_ratio"] = (
-    station_stats["station_max"] / (station_stats["station_mean"] + 1e-9)
-)
-
-# PROCESS FUNCTION
 def process_direction(is_boarding_val, label):
     print(f"\nProcessing {label}...")
     
-    # 1. Filter
     df = full_df[
         (full_df["dv_platenum_station"] == STATION) & 
         (full_df["is_boarding"] == is_boarding_val)
@@ -55,33 +43,30 @@ def process_direction(is_boarding_val, label):
     
     df = df.dropna(subset=["date_hour"]).sort_values("date_hour")
     
-    # 2. Merge Priors
-    df = df.merge(station_stats, on="dv_platenum_station", how="left")
-    
-    # 3. Rebuild Feature: station_hour
-    df["station_hour"] = df["dv_platenum_station"].astype(str) + "_H" + df["hour_of_day"].astype(str)
+    if len(df) == 0:
+        print(f"No data found for {label}")
+        return None
 
-    # 4. Fill NaNs / Type Conversion
+    # Load safe priors learned during training
+    prior_key = f"{STATION}_{is_boarding_val}"
+    pri = PRIORS.get(prior_key, GLOBAL_PRIOR)
+    df["station_mean"] = pri["station_mean"]
+    df["station_total"] = pri["station_total"]
+    df["station_peak_ratio"] = pri["station_peak_ratio"]
+
+    # Fill NaNs safely based on training medians
     for col in NUMERIC:
         if col in df.columns:
-            df[col] = df[col].fillna(df[col].median())
+            df[col] = df[col].fillna(MEDIANS.get(col, 0.0))
 
     for col in CATEGORICAL:
         if col in df.columns:
             df[col] = df[col].astype(str)
 
-    # 5. Predict
-    if len(df) == 0:
-        print(f"No data found for {label}")
-        return None
+    # Predict raw counts
+    df["pred"] = np.maximum(0, model.predict(df[FEATURES]))
 
-    pred_log = model.predict(df[FEATURES])
-    df["pred"] = np.expm1(pred_log) if LOG_TARGET else pred_log
-    df["pred"] = df["pred"].clip(lower=0)
-
-    # 6. Aggregate by Hour of Day
-    # This finds the average for each hour (avg for 00:00, avg for 01:00)
-    # across all days in the dataset.
+    # Aggregate by Hour of Day
     df_hourly_avg = df.groupby("hour_of_day")[["dv_validations", "pred"]].mean().reset_index()
     df_hourly_avg = df_hourly_avg.sort_values("hour_of_day")
     
@@ -89,7 +74,6 @@ def process_direction(is_boarding_val, label):
 
 
 # RUN PROCESSING
-# 1 = Boarding (Embark), 0 = Disembarking (Disembark)
 df_embark = process_direction(1, "Embark (Boarding)")
 df_disembark = process_direction(0, "Disembark (Exiting)")
 
@@ -123,8 +107,8 @@ plt.xlabel("Hour of Day")
 plt.ylabel("Avg Validations for that Hour")
 plt.grid(True, alpha=0.3)
 plt.legend()
-plt.xticks(range(0, 24)) # Set x-axis ticks to show every hour
-plt.xlim(-0.5, 23.5) # Set x-axis limits
+plt.xticks(range(0, 24))
+plt.xlim(-0.5, 23.5)
 
 plt.tight_layout()
 plt.show()

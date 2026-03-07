@@ -1,7 +1,5 @@
 import math
 from typing import List
-
-# This line is in your file, so I include it for context.
 from predict import Predictor 
 
 def generate_optimal_schedule(
@@ -42,14 +40,10 @@ def generate_optimal_schedule(
     schedule_lines.append(f"DAILY BUDGET: {max_trains_per_day} Total Trains")
     schedule_lines.append("-" * 70)
 
-    # Store the calculated "Total Demand" (worst of peak load or system load) for each hour
     hourly_demand = [0] * NUM_HOURS
-    # Service runs for 20 hours: 00:00 (hour 0) and 05:00-23:00 (hours 5-23)
     service_hours = [0] + list(range(5, 24))
 
-    # 2. First Pass: Calculate Total Demand per Hour
     for h in service_hours:
-        # Metric 1: Peak Segment Load
         load_outbound = [0] * NUM_STATIONS
         load_outbound[0] = tap_in_data[0][h]
         for s in range(1, NUM_STATIONS):
@@ -64,24 +58,17 @@ def generate_optimal_schedule(
             load_inbound[s] = max(0, load)
             
         peak_in = max(load_inbound)
-        
         peak_hourly_load = max(peak_out, peak_in)
 
-        # Metric 2: Total System Demand
         total_tap_in = 0
         for s in range(NUM_STATIONS):
             total_tap_in += tap_in_data[s][h]
         
-        # The total "demand" for this hour is the worse of the two bottlenecks
         hourly_demand[h] = max(peak_hourly_load, total_tap_in)
 
-    # 3. Second Pass: Allocate Daily Train Budget
-    
-    schedule = [0] * NUM_HOURS # This will hold the final train count for each hour
+    schedule = [0] * NUM_HOURS
     total_trains_allocated = 0
     
-    # A. Handle potential conflict between min_trains_per_hour and max_trains_per_day
-    # If the budget is too small, we must use a smaller, achievable minimum.
     num_service_hours = len(service_hours)
     min_trains_this_run = min(min_trains_per_hour, max_trains_per_day // num_service_hours)
     
@@ -89,12 +76,10 @@ def generate_optimal_schedule(
          schedule_lines.append(f"WARNING: max_trains_per_day ({max_trains_per_day}) is too low to meet")
          schedule_lines.append(f"         min_trains_per_hour ({min_trains_per_hour}). Using reduced min of {min_trains_this_run}.")
 
-    # B. Allocate the "floor" (minimum trains) to all service hours
     for h in service_hours:
         schedule[h] = min_trains_this_run
         total_trains_allocated += min_trains_this_run
         
-    # C. Iteratively allocate the "remaining" trains to the most congested hours
     remaining_trains = max_trains_per_day - total_trains_allocated
     
     for _ in range(remaining_trains):
@@ -102,16 +87,12 @@ def generate_optimal_schedule(
         max_congestion_metric = -1
         
         for h in service_hours:
-            # Skip this hour if it's already at its hourly max
             if schedule[h] >= max_trains_per_hour:
                 continue
                 
-            # Find the hour with the worst "congestion"
-            # Congestion = Demand / Capacity
             current_capacity = schedule[h] * EFFECTIVE_CAPACITY
             
             if current_capacity == 0:
-                # Any hour with 0 trains has "infinite" congestion
                 congestion_metric = float('inf')
             else:
                 congestion_metric = hourly_demand[h] / current_capacity
@@ -121,18 +102,14 @@ def generate_optimal_schedule(
                 best_h = h
                 
         if best_h == -1:
-            # This happens if all hours are at their max_trains_per_hour
-            # We have leftover trains in our budget but nowhere to put them
             if debug:
                 unused_trains = max_trains_per_day - total_trains_allocated
                 schedule_lines.append(f"NOTE: All hours at max. {unused_trains} daily trains unused.")
             break 
             
-        # Allocate one train to the worst-congested hour
         schedule[best_h] += 1
         total_trains_allocated += 1
 
-    # 4. Final Pass: Format Output String
     if debug:
         schedule_lines.append("\n--- DEBUG MODE (v3: Daily Budget Allocation) ---")
         schedule_lines.append(f"Total Daily Budget: {max_trains_per_day}")
@@ -183,28 +160,31 @@ if __name__ == "__main__":
     print("Initializing predictor")
     pred.init()
 
-    # Simulate a friday
-    tap_in = [[pred.predict(station, "2025-11-21", f"{str(hour).zfill(2)}:00", "b", 90)[0]
+    # Simulate a friday with raw weather inputs
+    # parameters: temp, precip, cloud_cover, wind_speed
+    weather = {"temperature": 15.0, "precipitation": 0.0, "cloud_cover": 20.0, "wind_speed": 10.0}
+
+    tap_in = [[pred.predict(station, "2025-11-21", f"{str(hour).zfill(2)}:00", "b", **weather)[0]
      for hour in range(24)]
      for station in range(0, 27)
     ]
 
-    tap_out = [[pred.predict(station, "2025-11-21", f"{str(hour).zfill(2)}:00", "d", 90)[0]
+    tap_out = [[pred.predict(station, "2025-11-21", f"{str(hour).zfill(2)}:00", "d", **weather)[0]
      for hour in range(24)]
      for station in range(0, 27)
     ]
 
-    # 2. Generate the schedule
+    # Generate the schedule
     timetable_string = generate_optimal_schedule(
         tap_in, 
         tap_out,
-        train_capacity=1200, # average OASA train capacity
-        congestion_target=0.9, # target optimization (0.9 * initial_congestion)
-        min_trains_per_hour=4, # minimum trains (at least 4 per hour)
-        max_trains_per_hour=20, # max trains 
-        max_trains_per_day=170, # oasa based
+        train_capacity=1200,
+        congestion_target=0.9,
+        min_trains_per_hour=4,
+        max_trains_per_hour=20,
+        max_trains_per_day=170,
         debug=True
     )
     
-    # 3. Print the result
+    # Print the result
     print(timetable_string)

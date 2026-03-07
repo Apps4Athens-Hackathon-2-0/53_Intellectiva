@@ -1,0 +1,3 @@
+regression_model/*.csv
+regression_model/*.json
+regression_model/*.cbm
