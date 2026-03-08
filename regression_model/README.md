@@ -65,14 +65,7 @@ Filters and cleans merged data.
 
 ---
 
-### 5. `printstationdata.py`
-
-Displays a clean, formatted summary of all available station-level data.
-Useful for quick exploration and dataset verification.
-
----
-
-### 6. `add_features.py`
+### 5. `add_features.py`
 
 Adds engineered features such as:
 
@@ -84,21 +77,21 @@ Exports `subway_forecast_ready.csv`
 
 ---
 
-### 7. `train_model.py`
+### 6. `train_model.py`
 
 Trains the predictive model using the enriched dataset.
 Includes all feature-engineered variables.
 
 ---
 
-### 8. `validate.py`
+### 7. `validate.py`
 
 Evaluates model performance on validation data.
 Prints accuracy metrics and diagnostic outputs.
 
 ---
 
-### 9. `predict.py`
+### 8. `predict.py`
 
 Provides a `Predictor` class for:
 
@@ -108,7 +101,7 @@ Provides a `Predictor` class for:
 
 ---
 
-### 10. `plot.py`
+### 9. `plot.py`
 
 Generates plots comparing:
 

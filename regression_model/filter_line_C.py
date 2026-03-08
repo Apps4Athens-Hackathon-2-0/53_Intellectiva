@@ -1,26 +1,29 @@
+#!/usr/bin/env python3
+
 import pandas as pd
+from predict import SUBWAY_STATIONS
 
-input_path = "oasa_weather_enriched.csv"
-print(f"Loading {input_path}...")
-df = pd.read_csv(input_path, low_memory=False)
+INPUT_FILE  = "oasa_weather_enriched.csv"
+OUTPUT_FILE = "subway_c.csv"
+SUBWAY_AGENCY = 2
 
-print(f"Total records: {len(df)}")
+print(f"Loading {INPUT_FILE}...")
+df = pd.read_csv(INPUT_FILE, low_memory=False)
+print(f"Total records: {len(df):,}")
 
-subway_stations = [
-    "ΔΗΜΟΤΙΚΟ ΘΕΑΤΡΟ", "ΠΕΙΡΑΙΑΣ", "ΜΑΝΙΑΤΙΚΑ", "ΝΙΚΑΙΑ", "ΚΟΡΥΔΑΛΛΟΣ",
-    "ΑΓΙΑ ΒΑΡΒΑΡΑ", "ΑΓΙΑ ΜΑΡΙΝΑ", "ΑΙΓΑΛΕΩ", "ΕΛΑΙΩΝΑΣ", "ΚΕΡΑΜΕΙΚΟΣ",
-    "ΜΟΝΑΣΤΗΡΑΚΙ", "ΣΥΝΤΑΓΜΑ", "ΕΥΑΓΓΕΛΙΣΜOΣ", "ΜΕΓΑΡΟ ΜΟΥΣΙKΗΣ", "ΑΜΠΕΛΟΚΗΠΟΙ",
-    "ΠΑΝOΡΜΟΥ", "ΚΑΤΕΧΑΚΗ", "ΕΘΝΙΚΗ ΑΜΥΝΑ", "ΧΟΛΑΡΓOΣ", "ΝΟΜΙΣΜΑTΟKΟΠΕΙΟ",
-    "ΑΓΙΑ ΠΑΡΑΣKΕΥΗ", "ΧΑΛΑΝΔΡΙ", "ΔΟΥΚΙΣΣΗΣ ΠΛΑΚΕΝΤΙΑΣ", "ΠΑΛΛΗΝΗ",
-    "ΠΑΙΑΝΙΑ - KΑΝTΖΑ", "ΚΟΡΩΠΙ", "ΑΕΡΟΔΡΟΜΙΟ"
-]
+print("Filtering to Line C subway stations (dv_agency=2)...")
+subway_df = df[
+    (df["dv_agency"] == SUBWAY_AGENCY) &
+    (df["dv_platenum_station"].isin(SUBWAY_STATIONS))
+].copy()
 
-print("Filtering for Line C Subway stations...")
-subway_df = df[(df["dv_agency"] == 2) & (df["dv_platenum_station"].isin(subway_stations))]
+print(f"Records retained: {len(subway_df):,}")
 
-print(f"Subway records kept: {len(subway_df)}")
+assert len(subway_df) > 0, (
+    "Filter produced an empty dataset. "
+    "Check that dv_agency and station names match the source data."
+)
 
-output_path = "subway_c.csv"
-print(f"Saving to {output_path}...")
-subway_df.to_csv(output_path, index=False)
-print("Done.")
+print(f"Saving to {OUTPUT_FILE}...")
+subway_df.to_csv(OUTPUT_FILE, index=False)
+print(f"Done. Saved: {OUTPUT_FILE}")

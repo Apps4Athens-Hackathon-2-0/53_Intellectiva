@@ -1,131 +1,133 @@
 #!/usr/bin/env python3
-"""
-validate.py
-Evaluates the future forecast model strictly on the held-out TEST set.
-Ensures zero data leakage during evaluation.
-"""
 
-import pandas as pd
-import numpy as np
-from catboost import CatBoostRegressor
-from tabulate import tabulate
 import json
 import os
+import sys
+import numpy as np
+import pandas as pd
+from catboost import CatBoostRegressor
+from tabulate import tabulate
 
 MODEL_FILE = "future_forecast_model.cbm"
 INFO_FILE  = "future_forecast_info.json"
 DATA_FILE  = "test_data.csv"
 
-print("\n🚇 Evaluating Future Forecast Model (Test Data Only)")
+# Pass/fail thresholds expressed as multiples of the training-phase MAE.
+# A cell passes if its MAE < MAE_TOLERANCE_FACTOR * overall_train_mae
+# and its MAPE < PASS_MAPE.
+MAE_TOLERANCE_FACTOR = 1.5   # allow 50% above training MAE at the cell level
+PASS_MAPE            = 35.0  # percent
+
+NON_OPERATING_HOURS = {1, 2, 3, 4, 5, 6}
+
+print("\nEvaluating Future Forecast Model (Test Data Only)")
 print("=" * 72)
 
-if not os.path.exists(DATA_FILE):
-    print(f"❌ Error: {DATA_FILE} not found. Please run train_model.py first.")
-    exit(1)
+# Sanity checks
+for path in (MODEL_FILE, INFO_FILE, DATA_FILE):
+    if not os.path.exists(path):
+        print(f"Error: {path} not found. Run train_model.py first.")
+        sys.exit(1)
 
-# ---------------------------------------------------------------------
-# 1. Load model + metadata
-# ---------------------------------------------------------------------
-print("\n📦 Loading model & metadata...")
+# Load model and metadata
+print("\nLoading model and metadata...")
 model = CatBoostRegressor()
 model.load_model(MODEL_FILE)
 
 with open(INFO_FILE) as f:
     info = json.load(f)
 
-FEATURES = info["features"]
-print("   ✔ Model loaded")
-print(f"   ✔ Test R² from training phase: {info['test_metrics']['r2']:.4f}")
+FEATURES     = info["features"]
+test_metrics = info["test_metrics"]
+PASS_MAE     = test_metrics["mae"] * MAE_TOLERANCE_FACTOR
 
-# ---------------------------------------------------------------------
-# 2. Load strictly unseen test dataset
-# ---------------------------------------------------------------------
-print("\n📥 Loading unseen test dataset...")
+print(f"  Model loaded")
+print(f"  Test MAE from training phase : {test_metrics['mae']:.2f}")
+print(f"  Test R2  from training phase : {test_metrics['r2']:.4f}")
+print(f"  Cell-level MAE threshold     : {PASS_MAE:.2f}  ({MAE_TOLERANCE_FACTOR}x training MAE)")
+print(f"  Cell-level MAPE threshold    : {PASS_MAPE:.1f}%")
+
+# Load test dataset
+print("\nLoading test dataset...")
 df = pd.read_csv(DATA_FILE, low_memory=False)
-print(f"   ✔ Loaded {len(df):,} test rows")
+print(f"  Loaded {len(df):,} rows")
 
-# ---------------------------------------------------------------------
-# 3. Predict
-# ---------------------------------------------------------------------
-print("\n🔮 Predicting on test rows...")
-pred = model.predict(df[FEATURES])
-df["pred"] = np.maximum(0, pred)  # Clip negative predictions
+# Verify all required features are present before attempting inference.
+missing = [f for f in FEATURES if f not in df.columns]
+if missing:
+    print(f"\nError: test_data.csv is missing {len(missing)} feature(s): {missing}")
+    print("Re-run train_model.py to regenerate test_data.csv with the current feature set.")
+    sys.exit(1)
 
-# ---------------------------------------------------------------------
-# 4. Aggregate: station × hour
-# ---------------------------------------------------------------------
-print("\n📊 Aggregating by (station, hour_of_day)...")
+# Predict
+print("\nPredicting on test rows...")
+df["pred"] = np.maximum(0, model.predict(df[FEATURES]))
+
+# Aggregate by station x hour, excluding non-operating hours
+print("\nAggregating by (station, hour_of_day)...")
+df_operating = df[~df["hour_of_day"].isin(NON_OPERATING_HOURS)]
+
 grouped = (
-    df.groupby(["dv_platenum_station", "hour_of_day"])
-      .agg(
-          actual_mean=("dv_validations", "mean"),
-          pred_mean=("pred", "mean"),
-          count=("dv_validations", "size")
-      )
-      .reset_index()
+    df_operating
+    .groupby(["dv_platenum_station", "hour_of_day"])
+    .agg(
+        actual_mean=("dv_validations", "mean"),
+        pred_mean=("pred", "mean"),
+        count=("dv_validations", "size"),
+    )
+    .reset_index()
 )
+print(f"  Non-operating hours excluded : {sorted(NON_OPERATING_HOURS)}")
+print(f"  Station-hour cells           : {len(grouped):,}")
 
-# ---------------------------------------------------------------------
-# 5. REMOVE NON-OPERATING HOURS 1–6
-# ---------------------------------------------------------------------
-NON_OPERATING_HOURS = [1, 2, 3, 4, 5, 6]
-grouped = grouped[~grouped["hour_of_day"].isin(NON_OPERATING_HOURS)].copy()
-
-print(f"   ✔ Removed non-operating hours {NON_OPERATING_HOURS}")
-print(f"   ✔ Rows after filtering: {len(grouped):,}")
-
-# ---------------------------------------------------------------------
-# 6. Compute Errors
-# ---------------------------------------------------------------------
+# Compute errors and pass/fail
 grouped["MAE"]  = (grouped["pred_mean"] - grouped["actual_mean"]).abs()
-grouped["MAPE"] = grouped["MAE"] / grouped["actual_mean"].replace(0, np.nan) * 100
-
-# PASS/FAIL criteria
-PASS_MAE  = 180
-PASS_MAPE = 35
-
+grouped["MAPE"] = (
+    grouped["MAE"] / grouped["actual_mean"].replace(0, np.nan) * 100
+)
 grouped["Result"] = np.where(
     (grouped["MAE"] < PASS_MAE) & (grouped["MAPE"] < PASS_MAPE),
-    "PASS", "FAIL"
+    "PASS", "FAIL",
 )
 
-# ---------------------------------------------------------------------
-# 7. Print sample
-# ---------------------------------------------------------------------
-print("\n📋 Sample Output (first 25 rows):\n")
-sample = grouped.head(25)[[
-    "dv_platenum_station", "hour_of_day",
-    "actual_mean", "pred_mean",
-    "MAE", "MAPE", "count", "Result"
-]]
+# Per-station summary
+station_summary = (
+    grouped.groupby("dv_platenum_station")
+    .agg(
+        mean_MAE=("MAE", "mean"),
+        mean_MAPE=("MAPE", "mean"),
+        pass_rate=("Result", lambda x: (x == "PASS").mean() * 100),
+    )
+    .reset_index()
+    .sort_values("mean_MAE", ascending=False)
+)
 
+print("\nPer-station summary (worst MAE first):\n")
 print(tabulate(
-    sample,
-    headers="keys",
+    station_summary,
+    headers=["Station", "Mean MAE", "Mean MAPE %", "Pass Rate %"],
     floatfmt=".2f",
-    tablefmt="fancy_grid"
+    tablefmt="fancy_grid",
 ))
 
-# ---------------------------------------------------------------------
-# 8. Summary
-# ---------------------------------------------------------------------
-overall_mae = grouped["MAE"].mean()
+# Overall summary
+overall_mae  = grouped["MAE"].mean()
 overall_mape = grouped["MAPE"].mean()
 overall_pass = (grouped["Result"] == "PASS").mean() * 100
 
-print("\n📈 OVERALL SUMMARY (Unseen Test Data)\n")
-summary = [
-    ["Overall MAE", f"{overall_mae:.2f}"],
-    ["Overall MAPE", f"{overall_mape:.1f}%"],
-    ["Pass Rate", f"{overall_pass:.1f}%"],
-    ["Stations Evaluated", grouped['dv_platenum_station'].nunique()],
-    ["Station-Hour Combinations", len(grouped)]
-]
-
+print("\nOverall summary (unseen test data):\n")
 print(tabulate(
-    summary,
+    [
+        ["Overall MAE",               f"{overall_mae:.2f}"],
+        ["Overall MAPE",              f"{overall_mape:.1f}%"],
+        ["Pass Rate",                 f"{overall_pass:.1f}%"],
+        ["Stations evaluated",        grouped["dv_platenum_station"].nunique()],
+        ["Station-hour combinations", len(grouped)],
+        ["MAE threshold used",        f"{PASS_MAE:.2f}"],
+        ["MAPE threshold used",       f"{PASS_MAPE:.1f}%"],
+    ],
     headers=["Metric", "Value"],
-    tablefmt="fancy_grid"
+    tablefmt="fancy_grid",
 ))
 
-print("\n✨ Evaluation Complete!\n")
+print("\nEvaluation complete.\n")
